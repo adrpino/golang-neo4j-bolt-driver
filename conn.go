@@ -7,7 +7,9 @@ import (
 	"net"
 	"time"
 
+	"fmt"
 	"net/url"
+
 	"strings"
 
 	"io"
@@ -17,10 +19,10 @@ import (
 	"crypto/x509"
 	"strconv"
 
-	"github.com/johnnadratowski/golang-neo4j-bolt-driver/encoding"
-	"github.com/johnnadratowski/golang-neo4j-bolt-driver/errors"
-	"github.com/johnnadratowski/golang-neo4j-bolt-driver/log"
-	"github.com/johnnadratowski/golang-neo4j-bolt-driver/structures/messages"
+	"github.com/adrpino/golang-neo4j-bolt-driver/encoding"
+	"github.com/adrpino/golang-neo4j-bolt-driver/errors"
+	"github.com/adrpino/golang-neo4j-bolt-driver/log"
+	"github.com/adrpino/golang-neo4j-bolt-driver/structures/messages"
 )
 
 // Conn represents a connection to Neo4J
@@ -82,6 +84,7 @@ type boltConn struct {
 	statement     *boltStmt
 	driver        *boltDriver
 	poolDriver    DriverPool
+	causalCluster bool
 }
 
 func createBoltConn(connStr string) *boltConn {
@@ -122,8 +125,15 @@ func (c *boltConn) parseURL() (*url.URL, error) {
 	url, err := url.Parse(c.connStr)
 	if err != nil {
 		return url, errors.Wrap(err, "An error occurred parsing bolt URL")
-	} else if strings.ToLower(url.Scheme) != "bolt" {
+	}
+	scheme := strings.ToLower(url.Scheme)
+	fmt.Println(scheme, scheme != "bolt" || scheme != "bolt+router")
+	if !(scheme == "bolt" || scheme == "bolt+router") {
 		return url, errors.New("Unsupported connection string scheme: %s. Driver only supports 'bolt' scheme.", url.Scheme)
+	}
+	// Causal cluster
+	if scheme == "bolt+router" {
+		c.causalCluster = true
 	}
 
 	if url.User != nil {
@@ -305,6 +315,7 @@ func (c *boltConn) initialize() error {
 		c.connErr = errors.New("Unrecognized response from the server: %#v", resp)
 		c.Close()
 		return driver.ErrBadConn
+		return nil
 	}
 }
 
