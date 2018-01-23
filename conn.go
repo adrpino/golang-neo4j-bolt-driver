@@ -7,7 +7,6 @@ import (
 	"net"
 	"time"
 
-	"fmt"
 	"net/url"
 
 	"strings"
@@ -85,6 +84,7 @@ type boltConn struct {
 	driver        *boltDriver
 	poolDriver    DriverPool
 	causalCluster bool
+	routingTable  *routingTable
 }
 
 func createBoltConn(connStr string) *boltConn {
@@ -127,7 +127,6 @@ func (c *boltConn) parseURL() (*url.URL, error) {
 		return url, errors.Wrap(err, "An error occurred parsing bolt URL")
 	}
 	scheme := strings.ToLower(url.Scheme)
-	fmt.Println(scheme, scheme != "bolt" || scheme != "bolt+router")
 	if !(scheme == "bolt" || scheme == "bolt+router") {
 		return url, errors.New("Unsupported connection string scheme: %s. Driver only supports 'bolt' scheme.", url.Scheme)
 	}
@@ -203,7 +202,6 @@ func (c *boltConn) createConn() (net.Conn, error) {
 			return nil, errors.Wrap(err, "An error occurred dialing to neo4j")
 		}
 	}
-
 	return conn, nil
 }
 
@@ -309,14 +307,21 @@ func (c *boltConn) initialize() error {
 	switch resp := respInt.(type) {
 	case messages.SuccessMessage:
 		log.Infof("Successfully initiated Bolt connection: %+v", resp)
-		return nil
 	default:
 		log.Errorf("Got an unrecognized message when initializing connection :%+v", resp)
 		c.connErr = errors.New("Unrecognized response from the server: %#v", resp)
 		c.Close()
 		return driver.ErrBadConn
-		return nil
 	}
+	if c.causalCluster {
+		rt, err := NewRoutingTable(c)
+		if err != nil {
+			return err
+		}
+		c.routingTable = rt
+	}
+	return nil
+
 }
 
 // Read reads the data from the underlying connection

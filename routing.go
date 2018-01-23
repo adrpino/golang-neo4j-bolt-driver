@@ -1,12 +1,12 @@
 package golangNeo4jBoltDriver
 
 import (
-	"fmt"
+	"github.com/adrpino/golang-neo4j-bolt-driver/errors"
 	"net/url"
 )
 
 // RoutingTable gathers addresses of different members in the causal cluster
-type RoutingTable struct {
+type routingTable struct {
 	ttl     int64
 	routers []*url.URL
 	readers []*url.URL
@@ -14,19 +14,17 @@ type RoutingTable struct {
 }
 
 // Creates a new routing table from a valid connection
-func NewRoutingTable(c *boltConn) (*RoutingTable, error) {
+func NewRoutingTable(c *boltConn) (*routingTable, error) {
 	data, _, _, err := c.QueryNeoAll("CALL dbms.cluster.routing.getRoutingTable({})", nil)
 	if err != nil {
 		return nil, err
 	}
-	r := &RoutingTable{}
+	r := &routingTable{}
 	r.ttl = data[0][0].(int64)
 	// XXX i know this is ugly, dont need you to tell me
 	// data[0][1] underlying data is an interface{}. Inside this interface there is a []interface{} var.
 	members := data[0][1].([]interface{})
-	var routers []*url.URL
-	var readers []*url.URL
-	var writers []*url.URL
+	var routers, readers, writers []*url.URL
 	for _, mem := range members {
 		m, ok := mem.(map[string]interface{})
 		if !ok {
@@ -40,7 +38,6 @@ func NewRoutingTable(c *boltConn) (*RoutingTable, error) {
 		if !ok {
 			continue
 		}
-		//		addresses := addr
 		// addr is interface
 		addresses := addr.([]interface{})
 		for _, add := range addresses {
@@ -58,14 +55,21 @@ func NewRoutingTable(c *boltConn) (*RoutingTable, error) {
 				routers = append(routers, parsedAddr)
 			}
 		}
-		r.readers = readers
-		r.writers = writers
-		r.routers = routers
 	}
+	if len(readers) == 0 {
+		return nil, errors.New("Error creating routing table, no readers received from server.")
+	}
+	if len(routers) == 0 {
+		return nil, errors.New("Error creating routing table, no routers received from server.")
+	}
+	r.readers = readers
+	r.writers = writers
+	r.routers = routers
+
 	return r, nil
 }
 
-func (r *RoutingTable) dropAddress(dropAddr *url.URL, role string) error {
+func (r *routingTable) dropAddress(dropAddr *url.URL, role string) error {
 	switch role {
 	case "WRITE":
 		for i, addr := range r.writers {
@@ -74,8 +78,10 @@ func (r *RoutingTable) dropAddress(dropAddr *url.URL, role string) error {
 				return nil
 			}
 		}
+	case "READER":
+		//TODO
 	default:
 	}
-	return fmt.Errorf("Cannot delete '%v' from routing table since it's not there", dropAddr)
+	return errors.New("Cannot delete '%v' from routing table since it's not there", dropAddr)
 
 }
