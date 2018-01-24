@@ -66,7 +66,6 @@ func NewRoutingTable(c *boltConn) (*routingTable, error) {
 	r.readers = readers
 	r.writers = writers
 	r.routers = routers
-
 	return r, nil
 }
 
@@ -87,13 +86,13 @@ func (r *routingTable) dropAddress(dropAddr *url.URL, role string) error {
 
 }
 
-func (r *routingTable) Reader() (*url.URL, ind) {
+func (r *routingTable) Reader() (*url.URL, int) {
 	// Select a random index
 	ind := rand.Intn(len(r.readers))
 	return r.readers[ind], ind
 }
 
-func (r *routingTable) Writer() (ind, *url.URL) {
+func (r *routingTable) Writer() (*url.URL, int) {
 	// Select a random index
 	ind := rand.Intn(len(r.writers))
 	return r.writers[ind], ind
@@ -103,7 +102,7 @@ func (r *routingTable) Writer() (ind, *url.URL) {
 func (r *routingTable) PopReader() *url.URL {
 	res, ind := r.Reader()
 	r.readers[ind] = r.readers[len(r.readers)-1]
-	r.readers[len(r.readers)-1] = 0
+	r.readers[len(r.readers)-1] = nil
 	r.readers = r.readers[:len(r.readers)-1]
 	return res
 }
@@ -112,7 +111,7 @@ func (r *routingTable) PopReader() *url.URL {
 func (r *routingTable) PopWriter() *url.URL {
 	res, ind := r.Writer()
 	r.writers[ind] = r.writers[len(r.writers)-1]
-	r.writers[len(r.writers)-1] = 0
+	r.writers[len(r.writers)-1] = nil
 	r.writers = r.writers[:len(r.readers)-1]
 	return res
 }

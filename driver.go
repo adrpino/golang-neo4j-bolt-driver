@@ -119,11 +119,6 @@ func NewDriverPool(connStr string, max int) (DriverPool, error) {
 	return createDriverPool(connStr, max)
 }
 
-// NewRoutingDriverPool creates a new routingDriverPool
-//func NewRoutingDriverPool(connStr string, max int) (routingDriverPool, error) {
-//	return createRoutingDriverPool(connStr, max)
-//}
-
 // NewClosableDriverPool create a closable driver pool
 func NewClosableDriverPool(connStr string, max int) (ClosableDriverPool, error) {
 	return createDriverPool(connStr, max)
@@ -167,10 +162,10 @@ func (d *boltDriverPool) OpenPool() (Conn, error) {
 		if conn.conn == nil {
 			if err := conn.initialize(); err != nil {
 				// Return the connection back into the pool
-				d.pool <- conn
+				d.readPool <- conn
 				return nil, err
 			}
-			d.connRefs = append(d.connRefs, conn)
+			d.readRefs = append(d.readRefs, conn)
 		}
 		return conn, nil
 	} else {
@@ -183,7 +178,7 @@ func (d *boltDriverPool) Close() error {
 	// Lock the connection ref so no new connections can be added
 	d.refLock.Lock()
 	defer d.refLock.Unlock()
-	for _, conn := range d.connRefs {
+	for _, conn := range d.readRefs {
 		// Remove the reference to the pool, to allow a clean up of the connection
 		conn.poolDriver = nil
 		err := conn.Close()
@@ -212,8 +207,11 @@ func (d *boltDriverPool) reclaim(conn *boltConn) error {
 		newConn = &boltConn{}
 		*newConn = *conn
 	}
-
-	d.pool <- newConn
+	if conn.accessMode == ReadMode {
+		d.readPool <- newConn
+	} else {
+		d.writePool <- newConn
+	}
 	conn = nil
 
 	return nil

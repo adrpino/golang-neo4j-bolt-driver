@@ -72,9 +72,12 @@ type Conn interface {
 	SetTimeout(time.Duration)
 }
 
+// initialUrl to connect to the server.
+// May not be the one used for actual connection (causal cluster)
 type boltConn struct {
 	connStr       string
 	url           *url.URL
+	initialUrl    *url.URL
 	user          string
 	password      string
 	conn          net.Conn
@@ -197,17 +200,11 @@ func (c *boltConn) parseURL() (*url.URL, error) {
 func (c *boltConn) createConn() (net.Conn, error) {
 
 	var err error
-	// instead of parsing the url, a server must be picked following a load balancing strategy
-	//	c.url, err = c.parseURL()
-	//	if err != nil {
-	//		return nil, errors.Wrap(err, "An error occurred parsing the conn URL")
-	//	}
-	// Parse an address depending on the access_mode
-	switch c.accessMode {
-	case ReadMode:
-		c.url, _ = c.routingTable.Reader()
-	case WriteMode:
-		c.url, _ = c.routingTable.Reader()
+	// Url needs to be set and parsed, and used for initial connection, but
+	// you should use different urls for read/writes
+	c.url, err = c.parseURL()
+	if err != nil {
+		return nil, errors.Wrap(err, "An error occurred parsing the conn URL")
 	}
 	var conn net.Conn
 	if c.useTLS {
@@ -215,11 +212,13 @@ func (c *boltConn) createConn() (net.Conn, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "An error occurred setting up TLS configuration")
 		}
+		// TODO don't use c.url
 		conn, err = tls.Dial("tcp", c.url.Host, config)
 		if err != nil {
 			return nil, errors.Wrap(err, "An error occurred dialing to neo4j")
 		}
 	} else {
+		// TODO don't use c.url
 		conn, err = net.DialTimeout("tcp", c.url.Host, c.timeout)
 		if err != nil {
 			return nil, errors.Wrap(err, "An error occurred dialing to neo4j")
@@ -306,13 +305,12 @@ func (c *boltConn) initialize() error {
 		}
 		c.conn = c.driver.recorder
 	} else {
-		// Opens the tcp connection
+		// Opens the tcp connection, internally uses c.url to connect
 		c.conn, err = c.createConn()
 		if err != nil {
 			return err
 		}
 	}
-
 	if err := c.handShake(); err != nil {
 		if e := c.Close(); e != nil {
 			log.Errorf("An error occurred closing connection: %s", e)
@@ -337,12 +335,19 @@ func (c *boltConn) initialize() error {
 		c.Close()
 		return driver.ErrBadConn
 	}
+	// Parse an address depending on the access_mode
 	if c.causalCluster {
 		rt, err := NewRoutingTable(c)
 		if err != nil {
 			return err
 		}
 		c.routingTable = rt
+	}
+	switch c.accessMode {
+	case ReadMode:
+		c.url, _ = c.routingTable.Reader()
+	case WriteMode:
+		c.url, _ = c.routingTable.Reader()
 	}
 	return nil
 
@@ -806,7 +811,6 @@ func (c *boltConn) queryNeo(query string, params map[string]interface{}) (*boltR
 	if c.closed {
 		return nil, errors.New("Connection already closed")
 	}
-
 	c.statement = newStmt(query, c)
 
 	// Pipeline the run + pull all for this

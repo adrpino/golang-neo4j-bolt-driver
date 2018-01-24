@@ -37,6 +37,7 @@ type PipelineStmt interface {
 	QueryPipeline(params ...map[string]interface{}) (PipelineRows, error)
 }
 
+// boltStmt implements Stmt. It embeds the underlying connection, queries and its output.
 type boltStmt struct {
 	queries []string
 	query   string
@@ -95,8 +96,11 @@ func (s *boltStmt) ExecNeo(params map[string]interface{}) (Result, error) {
 	if s.rows != nil {
 		return nil, errors.New("Another query is already open")
 	}
-
-	runResp, pullResp, _, err := s.conn.sendRunPullAllConsumeAll(s.query, params)
+	if s.conn.accessMode == WriteMode {
+		runResp, pullResp, _, err := s.conn.sendRunPullAllConsumeAll(s.query, params)
+	} else {
+		runResp, pullResp, _, err := s.conn.sendRunPullAllConsumeAll(s.query, params)
+	}
 	if err != nil {
 		return nil, err
 	}

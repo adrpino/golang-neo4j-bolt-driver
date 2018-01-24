@@ -3,14 +3,15 @@ package main
 import (
 	"fmt"
 
-	bolt "github.com/johnnadratowski/golang-neo4j-bolt-driver"
-	"github.com/johnnadratowski/golang-neo4j-bolt-driver/structures/graph"
+	bolt "github.com/adrpino/golang-neo4j-bolt-driver"
+	"github.com/adrpino/golang-neo4j-bolt-driver/structures/graph"
 	"io"
 )
 
 func main() {
 	driver := bolt.NewDriver()
-	conn, err := driver.OpenNeo("bolt://localhost:7687")
+	//	conn, err := driver.OpenNeo("bolt://localhost:7687")
+	conn, err := driver.OpenNeo("bolt+router://neo4j:changeme@localhost:7688")
 	if err != nil {
 		panic(err)
 	}
