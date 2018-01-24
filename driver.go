@@ -47,6 +47,9 @@ type boltDriver struct {
 	recorder *recorder
 }
 
+// routingDriver
+//type routingDriver struct
+
 // NewDriver creates a new Driver object
 func NewDriver() Driver {
 	return &boltDriver{}
@@ -58,6 +61,7 @@ func (d *boltDriver) Open(connStr string) (driver.Conn, error) {
 }
 
 // Open opens a new Bolt connection to the Neo4J database. Implements a Neo-friendly alternative to sql/driver.
+// The return must implement the Conn interface
 func (d *boltDriver) OpenNeo(connStr string) (Conn, error) {
 	return newBoltConn(connStr, d)
 }
@@ -81,30 +85,63 @@ type ClosableDriverPool interface {
 	Close() error
 }
 
+// boltDriverPool implements the DriverPool and ClosableDriverPool interfacees
 type boltDriverPool struct {
-	connStr  string
-	maxConns int
-	pool     chan *boltConn
-	connRefs []*boltConn
-	refLock  sync.Mutex
-	closed   bool
+	connStr   string
+	maxConns  int
+	readPool  chan *boltConn
+	writePool chan *boltConn
+	mixedPool chan *boltConn
+	readRefs  []*boltConn
+	writeRefs []*boltConn
+	*routingTable
+	refLock sync.Mutex
+	closed  bool
 }
+
+// RoutingDriverPool handles a pool of connections with different access modes.
+// the access modes are read and write. Where to send these requests depends on the routingTable
+//type routingDriverPool struct {
+//	connStr   string
+//	maxConns  int
+//	readPool  chan *boltConn
+//	writePool chan *boltConn
+//	mixedPool chan *boltConn
+//	readRefs  []*boltConn
+//	writeRefs []*boltConn
+//	*routingTable
+//	refLock sync.Mutex
+//	closed  bool
+//}
 
 // NewDriverPool creates a new Driver object with connection pooling
 func NewDriverPool(connStr string, max int) (DriverPool, error) {
 	return createDriverPool(connStr, max)
 }
 
+// NewRoutingDriverPool creates a new routingDriverPool
+//func NewRoutingDriverPool(connStr string, max int) (routingDriverPool, error) {
+//	return createRoutingDriverPool(connStr, max)
+//}
+
 // NewClosableDriverPool create a closable driver pool
 func NewClosableDriverPool(connStr string, max int) (ClosableDriverPool, error) {
 	return createDriverPool(connStr, max)
 }
 
+// NewClosableRoutingDriverPool create a closable routing driver pool
+func NewClosableRoutingDriverPool(connStr string, max int) (ClosableDriverPool, error) {
+	return createDriverPool(connStr, max)
+}
+
+// Constructor of boltDriverPool
 func createDriverPool(connStr string, max int) (*boltDriverPool, error) {
 	d := &boltDriverPool{
-		connStr:  connStr,
-		maxConns: max,
-		pool:     make(chan *boltConn, max),
+		connStr:   connStr,
+		maxConns:  max,
+		readPool:  make(chan *boltConn, max),
+		writePool: make(chan *boltConn, max),
+		mixedPool: make(chan *boltConn, max),
 	}
 
 	for i := 0; i < max; i++ {
@@ -113,20 +150,20 @@ func createDriverPool(connStr string, max int) (*boltDriverPool, error) {
 			return nil, err
 		}
 
-		d.pool <- conn
+		d.readPool <- conn
 	}
 
 	return d, nil
 }
 
-// OpenNeo opens a new Bolt connection to the Neo4J database.
+// OpenPool opens a pool of connections to the Neo4J database.
 func (d *boltDriverPool) OpenPool() (Conn, error) {
 	// For each connection request we need to block in case the Close function is called. This gives us a guarantee
 	// when closing the pool no new connections are made.
 	d.refLock.Lock()
 	defer d.refLock.Unlock()
 	if !d.closed {
-		conn := <-d.pool
+		conn := <-d.readPool
 		if conn.conn == nil {
 			if err := conn.initialize(); err != nil {
 				// Return the connection back into the pool
@@ -160,6 +197,7 @@ func (d *boltDriverPool) Close() error {
 	return nil
 }
 
+// reclaim method adds a boltConn to the DriverPool
 func (d *boltDriverPool) reclaim(conn *boltConn) error {
 	var newConn *boltConn
 	var err error

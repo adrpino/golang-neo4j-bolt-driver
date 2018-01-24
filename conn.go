@@ -24,6 +24,15 @@ import (
 	"github.com/adrpino/golang-neo4j-bolt-driver/structures/messages"
 )
 
+// Access modes define what the connection can do, i.e. read, write or both
+type AccessMode int
+
+const (
+	ReadMode = iota
+	WriteMode
+	MixedMode
+)
+
 // Conn represents a connection to Neo4J
 //
 // Implements a neo-friendly interface.
@@ -83,20 +92,24 @@ type boltConn struct {
 	statement     *boltStmt
 	driver        *boltDriver
 	poolDriver    DriverPool
+	accessMode    AccessMode
 	causalCluster bool
 	routingTable  *routingTable
 }
 
+// Constructor of boltConn
 func createBoltConn(connStr string) *boltConn {
 	return &boltConn{
 		connStr:       connStr,
 		timeout:       time.Second * time.Duration(60),
 		chunkSize:     math.MaxUint16,
 		serverVersion: make([]byte, 4),
+		accessMode:    WriteMode,
+		causalCluster: false,
 	}
 }
 
-// newBoltConn Creates a new bolt connection
+// newBoltConn Creates a new bolt connection. It can be configured with the access mode
 func newBoltConn(connStr string, driver *boltDriver) (*boltConn, error) {
 
 	c := createBoltConn(connStr)
@@ -133,6 +146,8 @@ func (c *boltConn) parseURL() (*url.URL, error) {
 	// Causal cluster
 	if scheme == "bolt+router" {
 		c.causalCluster = true
+	} else {
+		c.causalCluster = false
 	}
 
 	if url.User != nil {
@@ -178,14 +193,22 @@ func (c *boltConn) parseURL() (*url.URL, error) {
 	return url, nil
 }
 
+// Creates a connection
 func (c *boltConn) createConn() (net.Conn, error) {
 
 	var err error
-	c.url, err = c.parseURL()
-	if err != nil {
-		return nil, errors.Wrap(err, "An error occurred parsing the conn URL")
+	// instead of parsing the url, a server must be picked following a load balancing strategy
+	//	c.url, err = c.parseURL()
+	//	if err != nil {
+	//		return nil, errors.Wrap(err, "An error occurred parsing the conn URL")
+	//	}
+	// Parse an address depending on the access_mode
+	switch c.accessMode {
+	case ReadMode:
+		c.url, _ = c.routingTable.Reader()
+	case WriteMode:
+		c.url, _ = c.routingTable.Reader()
 	}
-
 	var conn net.Conn
 	if c.useTLS {
 		config, err := c.tlsConfig()
@@ -283,6 +306,7 @@ func (c *boltConn) initialize() error {
 		}
 		c.conn = c.driver.recorder
 	} else {
+		// Opens the tcp connection
 		c.conn, err = c.createConn()
 		if err != nil {
 			return err
