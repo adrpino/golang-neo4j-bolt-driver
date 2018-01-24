@@ -2,6 +2,7 @@ package golangNeo4jBoltDriver
 
 import (
 	"github.com/adrpino/golang-neo4j-bolt-driver/errors"
+	"math/rand"
 	"net/url"
 )
 
@@ -84,4 +85,34 @@ func (r *routingTable) dropAddress(dropAddr *url.URL, role string) error {
 	}
 	return errors.New("Cannot delete '%v' from routing table since it's not there", dropAddr)
 
+}
+
+func (r *routingTable) Reader() (*url.URL, ind) {
+	// Select a random index
+	ind := rand.Intn(len(r.readers))
+	return r.readers[ind], ind
+}
+
+func (r *routingTable) Writer() (ind, *url.URL) {
+	// Select a random index
+	ind := rand.Intn(len(r.writers))
+	return r.writers[ind], ind
+}
+
+// Gets a random reader
+func (r *routingTable) PopReader() *url.URL {
+	res, ind := r.Reader()
+	r.readers[ind] = r.readers[len(r.readers)-1]
+	r.readers[len(r.readers)-1] = 0
+	r.readers = r.readers[:len(r.readers)-1]
+	return res
+}
+
+// writer
+func (r *routingTable) PopWriter() *url.URL {
+	res, ind := r.Writer()
+	r.writers[ind] = r.writers[len(r.writers)-1]
+	r.writers[len(r.writers)-1] = 0
+	r.writers = r.writers[:len(r.readers)-1]
+	return res
 }
